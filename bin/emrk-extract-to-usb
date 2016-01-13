@@ -1,0 +1,119 @@
+#!/bin/sh
+#
+# emrk-init-usb: Initialize a USB Stick
+# 
+# Author: sskaje <sskaje at gmail dot com> 
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 2 as
+# published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+#
+
+usage()
+{
+	echo -e "Usage:"
+	echo -e "    $0 /dev/sda ./edgeos.tar"
+	echo -e ""
+	exit;
+}
+
+if [ $# -lt 2 ]
+then
+	usage
+fi
+
+if [ ! -f $2 ]
+then
+	echo -e "File $2 not exists";
+	exit;
+fi
+
+if [ ! -b $1 ]
+then
+	echo -e "File $1 must be a block special file";
+	exit;
+fi
+
+TARBALL=$2
+
+DEV=$1
+BOOT=${DEV}1
+ROOT=${DEV}2
+BOOT_MNT_DIR=/mnt/boot
+ROOT_MNT_DIR=/mnt/root
+TMP_DIR=$ROOT_MNT_DIR/tmp
+W_DIR=w
+
+# Release tarball file names
+KERNEL_ORIG=vmlinux.tmp
+KERNEL_ORIG_MD5=vmlinux.tmp.md5
+SQUASHFS_ORIG=squashfs.tmp
+SQUASHFS_MD5_ORIG=squashfs.tmp.md5
+VERSION_ORIG=version.tmp
+
+# Target file names
+KERNEL=vmlinux.64
+KERNEL_MD5=vmlinux.64.md5
+SQUASHFS=squashfs.img
+SQUASHFS_MD5=squashfs.img.md5
+VERSION=version
+
+
+## Mount partitions
+echo "Mounting boot parition"
+mount -t vfat $BOOT $BOOT_MNT_DIR
+
+echo "Mounting root partition"
+mount -t ext3 $ROOT $ROOT_MNT_DIR
+
+## Reinstall
+
+# Unpack image
+echo "Unpacking EdgeOS release image"
+mkdir $TMP_DIR
+tar xf $TARBALL -C $TMP_DIR
+
+# The kernel
+echo "Verifying EdgeOS kernel"
+if [ `md5sum $TMP_DIR/$KERNEL_ORIG | awk -F ' ' '{print $1}'` != `cat $TMP_DIR/$KERNEL_ORIG_MD5` ]; then
+    echo "Kernel from your image is corrupted! Check your image and start over."
+    exit 1
+fi
+
+echo "Copying EdgeOS kernel to boot partition"
+cp $TMP_DIR/$KERNEL_ORIG $BOOT_MNT_DIR/$KERNEL
+cp $TMP_DIR/$KERNEL_ORIG_MD5 $BOOT_MNT_DIR/$KERNEL_MD5
+
+# The image
+echo "Verifying EdgeOS system image"
+if [ `md5sum $TMP_DIR/$SQUASHFS_ORIG | awk -F ' ' '{print $1}'` != `cat $TMP_DIR/$SQUASHFS_MD5_ORIG` ]; then
+    echo "System image from your image is corrupted! Check your image and start over."
+    exit 1
+fi
+
+echo "Copying EdgeOS system image to root partition"
+mv $TMP_DIR/$SQUASHFS_ORIG $ROOT_MNT_DIR/$SQUASHFS
+mv $TMP_DIR/$SQUASHFS_MD5_ORIG $ROOT_MNT_DIR/$SQUASHFS_MD5
+
+echo "Copying version file to the root partition"
+mv $TMP_DIR/$VERSION_ORIG $ROOT_MNT_DIR/$VERSION
+
+# Writable data dir
+echo "Creating EdgeOS writable data directory"
+mkdir $ROOT_MNT_DIR/$W_DIR
+
+## Cleanup
+echo "Cleaning up"
+rm -rf $TMP_DIR
+
+echo "Installation finished"
+echo "Please reboot your router"
